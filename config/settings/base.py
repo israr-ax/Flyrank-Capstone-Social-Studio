@@ -73,6 +73,8 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+FAKE_PLATFORM_BASE_URL = os.environ.get("FAKE_PLATFORM_BASE_URL", "http://localhost:8000/fake/")
+
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
