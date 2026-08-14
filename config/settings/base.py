@@ -80,6 +80,10 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
 }
 
+OUR_WEBHOOK_URL = os.environ.get(
+    "OUR_WEBHOOK_URL", "http://localhost:8000/api/webhook/social-delivery/"
+)
+
 CELERY_TIMEZONE = "UTC"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_RESULT_BACKEND = "django-db"
