@@ -21,14 +21,28 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR("No campaigns exist yet -- run seed_demo first."))
             return
 
-        scheduled_post, _ = ScheduledPost.objects.get_or_create(
-            campaign=campaign,
-            platform="x",
-            defaults={
-                "scheduled_at": timezone.now() - timedelta(minutes=10),
-                "idempotency_key": make_idempotency_key(campaign.id, "x"),
-            },
-        )
+        scheduled_post = ScheduledPost.objects.filter(campaign=campaign, platform="x").first()
+
+        if scheduled_post and scheduled_post.status in ("published", "failed"):
+            self.stdout.write(
+                self.style.ERROR(
+                    f"The most recent campaign's 'x' post is already "
+                    f"'{scheduled_post.status}' -- simulating a crash on a finished "
+                    f"row would corrupt it (fake_platform's own idempotency dedup "
+                    f"means a republish never gets a fresh webhook, so it would "
+                    f"loop forever). Run `python manage.py seed_demo` first to get "
+                    f"a fresh campaign, then rerun this command."
+                )
+            )
+            return
+
+        if not scheduled_post:
+            scheduled_post = ScheduledPost.objects.create(
+                campaign=campaign,
+                platform="x",
+                scheduled_at=timezone.now() - timedelta(minutes=10),
+                idempotency_key=make_idempotency_key(campaign.id, "x"),
+            )
         scheduled_post.status = "claimed"
         scheduled_post.claimed_at = timezone.now() - timedelta(minutes=5)  # stale
         scheduled_post.claimed_by = "worker-that-crashed-SIMULATED"

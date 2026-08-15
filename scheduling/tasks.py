@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 5
 CLAIM_BATCH_SIZE = 20
-STALE_CLAIM_THRESHOLD_SECONDS = 120  # longer than any real publish should take
+STALE_CLAIM_THRESHOLD_SECONDS = 120  # claimed but publish() never even ran/finished
+WEBHOOK_WAIT_TIMEOUT_SECONDS = 300  # accepted by platform, but no webhook ever arrived
 
 
 @shared_task
@@ -22,15 +23,18 @@ def poll_due_scheduled_posts():
     """
     Runs on a Celery Beat schedule (every 15s, see CELERY_BEAT_SCHEDULE).
 
-    Two jobs, in order:
-    1. Reclaim stale claims -- a worker that crashed mid-publish leaves a
-       row stuck at status="claimed"/"publishing" forever otherwise, since
-       nothing else ever looks at those statuses. This is what actually
-       makes crash recovery work, not just "no duplicates."
-    2. Claim newly-due rows via an atomic conditional UPDATE (see note in
-       scheduling app docs on why this replaces SELECT FOR UPDATE SKIP
-       LOCKED for SQLite compatibility), then dispatch one publish task
-       per claimed row.
+    Three jobs, in order:
+    1. Reclaim TRULY stale claims -- a worker that crashed before ever
+       reaching a successful publish() call (no platform_post_id yet)
+       leaves a row stuck at "claimed"/"publishing" forever otherwise.
+    2. Time out rows that WERE accepted by the platform (platform_post_id
+       is set) but never got a webhook back within a much longer window.
+       These must NOT be re-published -- fake_platform's own idempotency
+       dedup means a republish with the same key returns the same
+       platform_post_id WITHOUT firing a new webhook, which would loop
+       this row forever instead of ever resolving. Mark failed instead.
+    3. Claim newly-due rows via an atomic conditional UPDATE and dispatch
+       one publish task per claimed row.
 
     State lives in ScheduledPost rows in the DB, not in Celery's broker,
     so a crashed worker or a restarted Beat process just means the next
@@ -38,12 +42,25 @@ def poll_due_scheduled_posts():
     """
     now = timezone.now()
 
-    stale_cutoff = now - timedelta(seconds=STALE_CLAIM_THRESHOLD_SECONDS)
+    stale_claim_cutoff = now - timedelta(seconds=STALE_CLAIM_THRESHOLD_SECONDS)
     reclaimed = ScheduledPost.objects.filter(
-        status__in=["claimed", "publishing"], claimed_at__lt=stale_cutoff
+        status__in=["claimed", "publishing"],
+        platform_post_id__isnull=True,
+        claimed_at__lt=stale_claim_cutoff,
     ).update(status="queued", next_retry_at=None, claimed_by=None, claimed_at=None)
     if reclaimed:
         logger.warning("poll_due_scheduled_posts: reclaimed %d stale claim(s)", reclaimed)
+
+    webhook_timeout_cutoff = now - timedelta(seconds=WEBHOOK_WAIT_TIMEOUT_SECONDS)
+    timed_out = ScheduledPost.objects.filter(
+        status="publishing",
+        platform_post_id__isnull=False,
+        claimed_at__lt=webhook_timeout_cutoff,
+    ).update(status="failed", last_error="webhook not received within timeout")
+    if timed_out:
+        logger.warning(
+            "poll_due_scheduled_posts: %d post(s) timed out waiting for webhook", timed_out
+        )
 
     due_ids = list(
         ScheduledPost.objects.filter(status="queued", scheduled_at__lte=now)

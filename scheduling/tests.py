@@ -133,6 +133,58 @@ class StaleClaimReclaimTests(TestCase):
         self.assertEqual(self.scheduled_post.claimed_by, "worker-that-crashed")  # untouched
 
 
+class WebhookTimeoutTests(TestCase):
+    """
+    Regression test for a real bug found during demo dry-run: a row that
+    WAS accepted by the platform (platform_post_id set) but never got a
+    webhook back must NOT be endlessly re-published -- fake_platform's own
+    idempotency dedup means a republish returns the same platform_post_id
+    without firing a fresh webhook, which looped this row forever before
+    this fix. It must time out to "failed" instead.
+    """
+
+    def setUp(self):
+        from datetime import timedelta
+
+        from django.utils import timezone as tz
+
+        campaign = _make_campaign()
+        self.scheduled_post = ScheduledPost.objects.create(
+            campaign=campaign,
+            platform="instagram",
+            scheduled_at=tz.now() - timedelta(minutes=10),
+            status="publishing",
+            platform_post_id="already-accepted-post-id",  # accepted, just no webhook
+            claimed_at=tz.now() - timedelta(minutes=6),  # older than WEBHOOK_WAIT_TIMEOUT_SECONDS
+            idempotency_key=make_idempotency_key(campaign.id, "instagram"),
+        )
+
+    def test_accepted_post_with_no_webhook_times_out_to_failed(self):
+        from scheduling.tasks import poll_due_scheduled_posts
+
+        with patch("scheduling.tasks.publish_scheduled_post.delay") as mock_delay:
+            poll_due_scheduled_posts()
+
+        self.scheduled_post.refresh_from_db()
+        self.assertEqual(self.scheduled_post.status, "failed")
+        self.assertEqual(self.scheduled_post.last_error, "webhook not received within timeout")
+        # critically: it must NOT have been re-dispatched for publishing
+        mock_delay.assert_not_called()
+
+    def test_recently_accepted_post_is_not_timed_out_yet(self):
+        from django.utils import timezone as tz
+
+        self.scheduled_post.claimed_at = tz.now()  # just accepted, well within window
+        self.scheduled_post.save(update_fields=["claimed_at"])
+
+        from scheduling.tasks import poll_due_scheduled_posts
+
+        poll_due_scheduled_posts()
+
+        self.scheduled_post.refresh_from_db()
+        self.assertEqual(self.scheduled_post.status, "publishing")  # untouched, still waiting
+
+
 @override_settings(TOKEN_ENCRYPTION_KEY="MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=")
 class PublishScheduledPostTaskTests(TestCase):
     """Retry-with-backoff logic, mocked at the publisher level."""

@@ -75,7 +75,7 @@ curl -i -X POST "http://localhost:8000/fake/instagram/publish/?force_429=1" ^
   -H "Authorization: Bearer fake-instagram-demo" ^
   -H "Idempotency-Key: demo-429-key" ^
   -F "caption=test" ^
-  -F "image=@C:\path\to\image.jpg"
+  -F "image=@C:\Users\hp\Downloads\PROFILE.jpeg"
 ```
 
 Point at the response headers: `429`, `Retry-After: 5`. If you want to

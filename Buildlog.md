@@ -121,3 +121,5 @@ creation from a campaign, the durable Celery Beat poller, and the actual
 retry-with-backoff behavior honoring `Retry-After`. This is where
 idempotent-publishing and durable-scheduling get their real proof, not
 just the adapter reading the header.
+
+Dry-running the demo script surfaced a real infinite-loop bug: simulate_crash reset an already-published row back to 'claimed', and since fake_platform's idempotency dedup only fires a webhook on first creation, the republished row got 202-accepted every cycle but never received a fresh webhook — looped every ~2 minutes indefinitely. Root cause diagnosed by reading the repeating log pattern (reclaimed → 202 → succeeded → repeat) and tracing it to the dedup branch in fake_platform/views.py never calling send_delivery_webhook. Fixed two places: (1) scheduling/tasks.py now separately times out accepted-but-webhook-never-arrived rows to 'failed' instead of endlessly re-publishing them, (2) simulate_crash now refuses to run against an already-terminal row. This is exactly the kind of bug a rehearsal catches and a rushed demo doesn't — glad we dry-ran it first.
