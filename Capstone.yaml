@@ -1,0 +1,30 @@
+name: flyrank-capstone-social-studio
+track: backend
+language: python
+framework: django
+
+run: python manage.py runstack
+seed: python manage.py seed_demo
+test: python manage.py test
+
+base_url: http://localhost:8000
+
+endpoints:
+  health: GET /api/health/
+  create_campaign: POST /api/campaigns/
+  campaign_detail: GET /api/campaigns/{id}/
+  list_campaigns: GET /api/campaigns/
+  delivery_webhook: POST /api/webhook/social-delivery/
+  fake_oauth: POST /fake/oauth/token/
+  fake_publish: POST /fake/{platform}/publish/          # platform = instagram | x
+
+notes: >
+  Everything runs against fake_platform, this repo's own simulated social
+  platform -- the starters/challenge-5-social/ link from the brief was
+  unreachable, so an equivalent contract was built and documented in
+  FAKE_PLATFORM_CONTRACT.md. Local dev runs on SQLite + a filesystem
+  Celery broker (no Docker/Redis required by design, per project
+  constraints) -- `run` above launches server + worker + beat together as
+  a pre-Docker convenience wrapper (see README "Known limitations").
+  Docker Compose with Postgres + Redis is planned before final submission
+  and will replace `run` with `docker compose up`.

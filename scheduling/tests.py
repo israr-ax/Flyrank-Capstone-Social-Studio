@@ -79,6 +79,60 @@ class AtomicClaimTests(TestCase):
         self.assertEqual(second_claim, 0)
 
 
+class StaleClaimReclaimTests(TestCase):
+    """
+    Definition of Done: 'Scheduling is durable: survives crash mid-batch,
+    restarted worker doesn't double-post.'
+
+    Simulates a worker that claimed a row and then crashed before
+    finishing -- status stuck at "claimed", claimed_at in the past. The
+    poller must reclaim it (reset to "queued") so it actually gets
+    published, not left stuck forever.
+    """
+
+    def setUp(self):
+        from datetime import timedelta
+
+        from django.utils import timezone as tz
+
+        campaign = _make_campaign()
+        self.scheduled_post = ScheduledPost.objects.create(
+            campaign=campaign,
+            platform="instagram",
+            scheduled_at=tz.now() - timedelta(minutes=5),
+            status="claimed",  # simulates: worker claimed it, then crashed
+            claimed_at=tz.now() - timedelta(minutes=5),  # 5 min ago = stale
+            claimed_by="worker-that-crashed",
+            idempotency_key=make_idempotency_key(campaign.id, "instagram"),
+        )
+
+    def test_stale_claim_gets_reclaimed_and_republished(self):
+        from scheduling.tasks import poll_due_scheduled_posts
+
+        with patch("scheduling.tasks.publish_scheduled_post.delay") as mock_delay:
+            poll_due_scheduled_posts()
+
+        self.scheduled_post.refresh_from_db()
+        # after one poll cycle: reclaimed to "queued" then immediately
+        # re-claimed and dispatched in the same cycle, since it's now due
+        self.assertEqual(self.scheduled_post.status, "claimed")
+        mock_delay.assert_called_once_with(str(self.scheduled_post.id))
+
+    def test_fresh_claim_is_not_reclaimed(self):
+        from django.utils import timezone as tz
+
+        self.scheduled_post.claimed_at = tz.now()  # just claimed, not stale
+        self.scheduled_post.save(update_fields=["claimed_at"])
+
+        from scheduling.tasks import poll_due_scheduled_posts
+
+        with patch("scheduling.tasks.publish_scheduled_post.delay"):
+            poll_due_scheduled_posts()
+
+        self.scheduled_post.refresh_from_db()
+        self.assertEqual(self.scheduled_post.claimed_by, "worker-that-crashed")  # untouched
+
+
 @override_settings(TOKEN_ENCRYPTION_KEY="MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=")
 class PublishScheduledPostTaskTests(TestCase):
     """Retry-with-backoff logic, mocked at the publisher level."""

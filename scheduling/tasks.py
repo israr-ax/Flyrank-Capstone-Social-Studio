@@ -14,21 +14,37 @@ logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 5
 CLAIM_BATCH_SIZE = 20
+STALE_CLAIM_THRESHOLD_SECONDS = 120  # longer than any real publish should take
 
 
 @shared_task
 def poll_due_scheduled_posts():
     """
     Runs on a Celery Beat schedule (every 15s, see CELERY_BEAT_SCHEDULE).
-    Claims due rows via an atomic conditional UPDATE (see note in
-    scheduling app docs on why this replaces SELECT FOR UPDATE SKIP
-    LOCKED for SQLite compatibility), then dispatches one publish task
-    per claimed row. This is the piece that makes scheduling durable --
-    state lives in ScheduledPost rows in the DB, not in Celery's broker,
+
+    Two jobs, in order:
+    1. Reclaim stale claims -- a worker that crashed mid-publish leaves a
+       row stuck at status="claimed"/"publishing" forever otherwise, since
+       nothing else ever looks at those statuses. This is what actually
+       makes crash recovery work, not just "no duplicates."
+    2. Claim newly-due rows via an atomic conditional UPDATE (see note in
+       scheduling app docs on why this replaces SELECT FOR UPDATE SKIP
+       LOCKED for SQLite compatibility), then dispatch one publish task
+       per claimed row.
+
+    State lives in ScheduledPost rows in the DB, not in Celery's broker,
     so a crashed worker or a restarted Beat process just means the next
     poll picks up exactly where things were left off.
     """
     now = timezone.now()
+
+    stale_cutoff = now - timedelta(seconds=STALE_CLAIM_THRESHOLD_SECONDS)
+    reclaimed = ScheduledPost.objects.filter(
+        status__in=["claimed", "publishing"], claimed_at__lt=stale_cutoff
+    ).update(status="queued", next_retry_at=None, claimed_by=None, claimed_at=None)
+    if reclaimed:
+        logger.warning("poll_due_scheduled_posts: reclaimed %d stale claim(s)", reclaimed)
+
     due_ids = list(
         ScheduledPost.objects.filter(status="queued", scheduled_at__lte=now)
         .filter(Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=now))
