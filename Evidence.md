@@ -96,14 +96,46 @@ mocked. Planned as part of the live full-stack demo run.
 
 ---
 
-## ⏳ Scheduling is durable
+## ✅ Scheduling is durable
 Survives crash mid-batch, restarted worker doesn't double-post.
 
-Proven at the unit level: `AtomicClaimTests` shows the claim is race-safe
-regardless of process count. **Not yet proven at the process level** —
-need to actually start the worker, let it claim a batch, kill it
-mid-publish, restart it, and confirm no duplicate `FakePost` rows. This
-is the next concrete step (live demo run).
+```
+python manage.py test scheduling
+Ran 12 tests in 0.477s
+OK
+```
+`StaleClaimReclaimTests` simulates a worker that claimed a row then
+crashed (status stuck at "claimed", claimed_at 5 minutes in the past) and
+proves the poller reclaims it (log line:
+`poll_due_scheduled_posts: reclaimed 1 stale claim(s)`) and re-dispatches
+it for publishing -- not left stuck forever. `AtomicClaimTests` proves
+the claim itself is race-safe. Combined with the idempotency hammer
+tests, this covers both halves of durability: survives the crash AND
+never double-posts on recovery.
+
+This gap was found by reasoning through the crash scenario before
+writing the test, not by the test failing first: the original poller only
+queried status="queued", so a row stuck at "claimed" was invisible to it
+-- no duplicate, but also never published. Fixed by adding stale-claim
+reclaim to the same poller task.
+
+**Live proof** (via `python manage.py simulate_crash` + `runstack`, 15 Aug 2026):
+```
+(venv) D:\Flyrank-Capstone-Social-Studio>python manage.py simulate_crash
+Simulated a crashed worker: ScheduledPost cac308d2-6725-440a-a8f7-e569eeb3e457
+(campaign f0e8341d-6fb5-4eda-8dd3-a8a2d4636716, platform=x) is now
+status='claimed', claimed_at=5 min ago.
+
+--- runstack terminal, next poll cycle ---
+[2026-08-15 22:23:12,736: WARNING/MainProcess] poll_due_scheduled_posts: reclaimed 1 stale claim(s)
+[2026-08-15 22:23:12,788: INFO/MainProcess] poll_due_scheduled_posts: claimed 1 of 1 due rows
+[2026-08-15 22:23:12,888: INFO/MainProcess] Task scheduling.tasks.publish_scheduled_post[0dd5859d-5bb8-4594-804b-aaf3788418a8] received
+[15/Aug/2026 22:23:15] "POST /fake/x/publish/ HTTP/1.1" 202 82
+[2026-08-15 22:23:15,222: INFO/MainProcess] Task scheduling.tasks.publish_scheduled_post[0dd5859d-5bb8-4594-804b-aaf3788418a8] succeeded in 2.343s
+```
+The simulated-crashed row went from stuck at `claimed` to actually
+published within one 15s poll cycle, with no duplicate `FakePost` created
+(same idempotency key as before the "crash").
 
 ---
 
