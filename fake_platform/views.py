@@ -3,6 +3,7 @@ import random
 import time
 import uuid
 
+from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -60,8 +61,10 @@ def publish(request, platform):
         time.sleep(30)  # your adapter's requests timeout should fire first
 
     # Organic ~1-in-8 429 so the retry path gets exercised without always
-    # needing the explicit flag.
-    if random.randint(1, 8) == 1:
+    # needing the explicit flag. Controllable via settings so deterministic
+    # tests (e.g. the idempotency hammer) can turn it off.
+    simulate_random_429 = getattr(settings, "FAKE_PLATFORM_SIMULATE_RANDOM_429", True)
+    if simulate_random_429 and random.randint(1, 8) == 1:
         resp = JsonResponse({"error": "rate_limited"}, status=429)
         resp["Retry-After"] = "3"
         return resp

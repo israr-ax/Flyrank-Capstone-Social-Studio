@@ -74,6 +74,14 @@ STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 FAKE_PLATFORM_BASE_URL = os.environ.get("FAKE_PLATFORM_BASE_URL", "http://localhost:8000/fake/")
+FAKE_PLATFORM_SIMULATE_RANDOM_429 = True  # demo realism; tests override to False
+
+CELERY_BEAT_SCHEDULE = {
+    "poll-due-scheduled-posts": {
+        "task": "scheduling.tasks.poll_due_scheduled_posts",
+        "schedule": 15.0,  # seconds
+    },
+}
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
