@@ -5,4 +5,5 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("fake/", include("fake_platform.urls")),
     path("api/webhook/", include("webhooks.urls")),
+    path("api/", include("campaigns.urls")),
 ]
