@@ -169,8 +169,55 @@ All four now have real automated coverage:
 
 ---
 
-## ⬜ README + architecture diagram + setup instructions + § 11 files
-`DESIGN.md`, `FAKE_PLATFORM_CONTRACT.md`, `BUILDLOG.md`, `EVIDENCE.md`
-exist. Still needed: `README.md` setup instructions, architecture
-diagram, `capstone.yaml`, final `.env.example` review. Planned for demo
-prep phase.
+## ✅ Docker / production-parity verification
+Full test suite and live pipeline re-verified against real Postgres +
+Redis (not SQLite/filesystem broker), via `docker compose up --build`.
+
+```
+docker compose exec web python manage.py test
+Found 38 test(s).
+...
+Ran 38 tests in 3.057s
+OK
+```
+
+Live campaign through the actual Docker network (`web`, `worker`, `beat`,
+`db`, `redis` as separate containers):
+```
+docker compose exec web python manage.py seed_demo
+Seeded campaign 517d9298-820b-46eb-bb66-5df76483ed7a
+
+curl http://localhost:8000/api/campaigns/517d9298-820b-46eb-bb66-5df76483ed7a/
+{"status":"published", ...
+ "scheduled_posts":[
+   {"platform":"instagram","status":"published","attempt_count":1,"published_at":"2026-08-16T13:51:54.318836Z",...},
+   {"platform":"x","status":"published","attempt_count":2,"published_at":"2026-08-16T13:52:09.804152Z",...}
+ ]}
+```
+Note `x` shows `attempt_count: 2` — it hit the organic random 429 and
+retried successfully, live, against the real Redis-backed Celery broker.
+
+Idempotency hammer re-verified in Docker too:
+```
+docker compose exec web python manage.py test scheduling.tests.IdempotencyHammerIntegrationTests -v 2
+test_duplicate_publish_requests_create_exactly_one_fake_post ... ok
+test_ten_duplicate_requests_still_create_exactly_one_fake_post ... ok
+Ran 2 tests in 0.080s
+OK
+```
+
+Two real bugs were found and fixed getting to this point (see
+`BUILDLOG.md`): a `$` in `DJANGO_SECRET_KEY` breaking Docker Compose's own
+variable substitution, and a missing `redis` Python client package
+(Postgres's `psycopg2-binary` was added, but the Redis client library was
+initially forgotten, causing `AttributeError: 'NoneType' object has no
+attribute 'Redis'` in both `worker` and `beat` containers).
+
+---
+
+## ✅ README + architecture diagram + setup instructions + § 11 files
+`DESIGN.md`, `FAKE_PLATFORM_CONTRACT.md`, `BUILDLOG.md`, `EVIDENCE.md`,
+`capstone.yaml`, `DEMO_SCRIPT.md` all exist. `README.md` has an ASCII
+architecture diagram, exact Docker + local-dev setup steps (both
+verified working), and an honest "Known limitations" section.
+`.env.example` reviewed for placeholders only, no real secrets.

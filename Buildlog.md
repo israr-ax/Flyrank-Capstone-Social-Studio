@@ -122,4 +122,42 @@ retry-with-backoff behavior honoring `Retry-After`. This is where
 idempotent-publishing and durable-scheduling get their real proof, not
 just the adapter reading the header.
 
-Dry-running the demo script surfaced a real infinite-loop bug: simulate_crash reset an already-published row back to 'claimed', and since fake_platform's idempotency dedup only fires a webhook on first creation, the republished row got 202-accepted every cycle but never received a fresh webhook — looped every ~2 minutes indefinitely. Root cause diagnosed by reading the repeating log pattern (reclaimed → 202 → succeeded → repeat) and tracing it to the dedup branch in fake_platform/views.py never calling send_delivery_webhook. Fixed two places: (1) scheduling/tasks.py now separately times out accepted-but-webhook-never-arrived rows to 'failed' instead of endlessly re-publishing them, (2) simulate_crash now refuses to run against an already-terminal row. This is exactly the kind of bug a rehearsal catches and a rushed demo doesn't — glad we dry-ran it first.
+---
+
+## Docker Compose (Phase 5 wrap-up)
+
+**Two real bugs, both found by actually running `docker compose up`, not
+by review:**
+
+1. **`$` in `DJANGO_SECRET_KEY` broke Docker Compose's own variable
+   substitution.** Compose auto-reads `.env` for `${VAR}` interpolation in
+   `docker-compose.yml`, completely separate from the `env_file:`
+   directive that passes values into containers. A Django-generated
+   secret key containing `$qc` got misread as a reference to an undefined
+   `qc` variable — repeated warning: `The "qc" variable is not set.
+   Defaulting to a blank string.` Fixed by escaping to `$$` on that one
+   line in `.env` (Compose's documented escape syntax), not by
+   regenerating the key.
+
+2. **Missing `redis` Python client package.** Added `psycopg2-binary` for
+   Postgres in `requirements.txt` but forgot the actual `redis` package
+   needed by Kombu's Redis transport. Both `worker` and `beat` containers
+   crashed identically with `AttributeError: 'NoneType' object has no
+   attribute 'Redis'` — a genuinely confusing error message that doesn't
+   mention "missing package" anywhere; had to trace it through Kombu's
+   `transport/redis.py` to recognize `redis.Redis` was `None` because the
+   `redis` module itself failed to import. Fixed with one line:
+   `redis>=5.0` in `requirements.txt`, rebuild.
+
+**After both fixes:** full stack verified clean — Postgres, Redis, web,
+worker, and beat all started correctly, migrations applied to real
+Postgres, 38/38 tests passed inside the container, `seed_demo` created a
+real campaign that published to both platforms through the actual Docker
+network (X platform even hit the organic random 429 and retried
+successfully live), and the idempotency hammer passed against the
+containerized `fake_platform`. Full output pasted in `EVIDENCE.md`.
+
+I did NOT let Claude write "expected" Docker output into `EVIDENCE.md`
+before I actually had it — asked for that explicitly and it refused,
+correctly, since that would have been fabricated evidence on a project
+graded on evidence being real.
