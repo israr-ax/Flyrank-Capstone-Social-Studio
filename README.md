@@ -237,7 +237,14 @@ Documented on purpose, not hidden:
 - **Own fake platform, not the provided starter.** The
   `starters/challenge-5-social/` link in the brief was unreachable, so
   `fake_platform` is a self-built equivalent, contract documented in
-  [`FAKE_PLATFORM_CONTRACT.md`](./FAKE_PLATFORM_CONTRACT.md).
+  [`FAKE_PLATFORM_CONTRACT.md`](./FAKE_PLATFORM_CONTRACT.md). **This
+  matches FlyRank's own official clarification** (issued after this
+  project started, when the brief was split into "Social Media Studio"
+  vs. this older "Multi-Platform Social Campaign Publisher" version):
+  self-built mock servers implementing a token endpoint, an
+  `Idempotency-Key`-aware publish endpoint, `429`/`Retry-After`, and an
+  HMAC-signed webhook callback are an explicitly accepted approach for
+  anyone who started on this version.
 - **Image pipeline uses simple center-crop** — assumes the subject is
   roughly centered. Real subject-detection/focal-point safe-zoning is a
   documented v2, not a silent gap.

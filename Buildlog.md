@@ -161,3 +161,24 @@ I did NOT let Claude write "expected" Docker output into `EVIDENCE.md`
 before I actually had it — asked for that explicitly and it refused,
 correctly, since that would have been fabricated evidence on a project
 graded on evidence being real.
+
+---
+
+## Brief clarification (post-hoc validation)
+
+After most of this project was built, FlyRank clarified that the brief
+had been split into two versions: a newer "Social Media Studio" (build
+your own mock adapters + publish to a real free platform like Telegram/
+Discord/Mastodon) and this older "Multi-Platform Social Campaign
+Publisher" (which referenced `starters/challenge-5-social/` -- a starter
+that was planned but never actually shipped, hence why it was
+unreachable the whole time). FlyRank confirmed: anyone already on the
+old version can continue, only needing to supply the missing fake
+platform piece themselves -- and explicitly listed "write it yourself:
+token endpoint, Idempotency-Key-aware publish endpoint, 429/Retry-After,
+HMAC-signed webhook callback" as an accepted approach. That's exactly
+what `fake_platform/` already was, built independently before this
+clarification existed, for the same reason (the link never worked). No
+changes needed to the approach -- just added a note in `README.md`
+referencing the clarification so a reader isn't confused by the mismatch
+with the original PDF.
