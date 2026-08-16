@@ -53,8 +53,12 @@ def publish(request, platform):
 
     # Deterministic failure modes for demo/testing -- see FAKE_PLATFORM_CONTRACT.md
     if request.GET.get("force_429") == "1":
+        # Retry-After defaults to 5s but is configurable via ?retry_after=N
+        # so the exact scenario in the brief's PROBE 2 (Retry-After: 30)
+        # can be demonstrated literally, not just approximated.
+        retry_after_seconds = request.GET.get("retry_after", "5")
         resp = JsonResponse({"error": "rate_limited"}, status=429)
-        resp["Retry-After"] = "5"
+        resp["Retry-After"] = retry_after_seconds
         return resp
 
     if request.GET.get("force_timeout") == "1":
