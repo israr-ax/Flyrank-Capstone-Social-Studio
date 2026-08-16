@@ -138,17 +138,13 @@ breakdown with pasted output.
 
 Documented on purpose, not hidden:
 
-- **No Docker yet.** Local dev runs SQLite + a filesystem-based Celery
-  broker (no Redis required) by explicit project constraint. Docker
-  Compose with Postgres + Redis is planned before final submission —
-  `CELERY_BROKER_URL` is read only from settings, so this is a
-  configuration change, not a code change.
-- **Filesystem Celery broker supports one worker process reliably.**
-  Fine for dev and demo; not for production, which is exactly why `prod.py`
-  will use Redis.
-- **`runstack` is a subprocess-based convenience wrapper**, not a real
-  process supervisor — no automatic restart on crash, no log separation.
-  Stand-in for `docker compose up` until Docker Compose exists.
+- **Two run modes, both documented.** `docker compose up --build` (Postgres +
+  Redis, matches production) is the primary path. `python manage.py runstack`
+  (SQLite + filesystem Celery broker, no Docker/Redis needed) remains as a
+  documented local-dev fallback — useful for quick iteration without
+  waiting on container rebuilds. `CELERY_BROKER_URL` and `DATABASES` are
+  only ever read from settings, so nothing in the app code branches on
+  which mode is active.
 - **Own fake platform, not the provided starter.** The
   `starters/challenge-5-social/` link in the brief was unreachable, so
   `fake_platform` is a self-built equivalent app in this same project,

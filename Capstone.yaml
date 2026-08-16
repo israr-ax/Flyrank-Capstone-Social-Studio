@@ -3,9 +3,9 @@ track: backend
 language: python
 framework: django
 
-run: python manage.py runstack
-seed: python manage.py seed_demo
-test: python manage.py test
+run: docker compose up --build
+seed: docker compose exec web python manage.py seed_demo
+test: docker compose exec web python manage.py test
 
 base_url: http://localhost:8000
 
@@ -22,9 +22,7 @@ notes: >
   Everything runs against fake_platform, this repo's own simulated social
   platform -- the starters/challenge-5-social/ link from the brief was
   unreachable, so an equivalent contract was built and documented in
-  FAKE_PLATFORM_CONTRACT.md. Local dev runs on SQLite + a filesystem
-  Celery broker (no Docker/Redis required by design, per project
-  constraints) -- `run` above launches server + worker + beat together as
-  a pre-Docker convenience wrapper (see README "Known limitations").
-  Docker Compose with Postgres + Redis is planned before final submission
-  and will replace `run` with `docker compose up`.
+  FAKE_PLATFORM_CONTRACT.md. Runs via Docker Compose: Postgres + Redis +
+  three app containers (web, worker, beat). Local dev without Docker is
+  also supported (SQLite + filesystem Celery broker via
+  `python manage.py runstack`) -- see README.
